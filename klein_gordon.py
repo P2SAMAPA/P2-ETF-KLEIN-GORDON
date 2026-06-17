@@ -16,38 +16,35 @@ def compute_macro_factor(macro_df):
 def klein_gordon_field(returns, macro_factor, mass_base=1.0, mass_range=0.5):
     """
     Solve Klein-Gordon equation: (∂²/∂t² - ∂²/∂x² + m²) φ = 0
-    Using finite difference approximation on the return series.
+    Returns the field amplitude (energy density) at the last time step.
     """
     if len(returns) < 5:
         return 0.0
-    # Macro-dependent mass: m = mass_base + mass_range * macro_factor
+    # Macro-dependent mass
     mass = mass_base + mass_range * macro_factor
-    # Discretise space: use indices as x
     n = len(returns)
     dx = 1.0
-    dt = 1.0
-    # Initial conditions: φ(x,0) = returns[x], φ_t(x,0) = 0 (momentum zero)
-    phi = np.zeros((n, n))  # time x space
-    phi[0, :] = returns
-    # First time step
-    phi[1, 1:n-1] = phi[0, 1:n-1] + 0.5 * dt**2 * (
-        (phi[0, 2:] - 2*phi[0, 1:n-1] + phi[0, :-2]) / dx**2 - mass**2 * phi[0, 1:n-1]
-    )
-    # Boundary conditions: zero at edges (Dirichlet)
-    phi[1, 0] = 0
-    phi[1, n-1] = 0
-    # Time evolution (leapfrog method)
-    for t in range(1, n-1):
-        # Interior points
-        phi[t+1, 1:n-1] = 2*phi[t, 1:n-1] - phi[t-1, 1:n-1] + dt**2 * (
-            (phi[t, 2:] - 2*phi[t, 1:n-1] + phi[t, :-2]) / dx**2 - mass**2 * phi[t, 1:n-1]
-        )
-        # Boundaries
-        phi[t+1, 0] = 0
-        phi[t+1, n-1] = 0
-    # Score = field amplitude at the last time step (absolute value)
-    field_amplitude = np.abs(phi[-1])
-    # Return the amplitude at the last spatial point (or average)
-    # We'll use the amplitude at the last point as the score for the ETF
-    score = field_amplitude[-1] if len(field_amplitude) > 0 else 0.0
-    return float(score)
+    dt = 0.5  # reduced time step for stability
+    # Initial field and momentum
+    phi = returns
+    phi_prev = returns * 0.0  # initial velocity zero
+    # Store fields for energy calculation
+    phi_t = phi.copy()
+    phi_t_prev = phi_prev.copy()
+    # Time evolution
+    for t in range(1, n):
+        # Compute spatial second derivative (laplacian) using finite differences
+        laplacian = np.zeros(n)
+        laplacian[1:-1] = (phi_t[2:] - 2*phi_t[1:-1] + phi_t[:-2]) / dx**2
+        # Boundaries: zero derivative (Neumann)
+        laplacian[0] = (phi_t[1] - phi_t[0]) / dx**2
+        laplacian[-1] = (phi_t[-2] - phi_t[-1]) / dx**2
+        # Klein-Gordon time evolution (leapfrog)
+        phi_next = 2*phi_t - phi_t_prev + dt**2 * (laplacian - mass**2 * phi_t)
+        phi_t_prev = phi_t
+        phi_t = phi_next
+    # Compute energy density at the last step: E = 0.5*(∂φ/∂t)^2 + 0.5*(∇φ)^2 + 0.5*m^2*φ^2
+    # We'll use the amplitude (absolute value) of the field at the last point
+    # as a simple proxy for energy
+    amplitude = np.abs(phi_t[-1]) if len(phi_t) > 0 else 0.0
+    return float(amplitude)
